@@ -24,7 +24,7 @@ docker run -d -p 2881:2881 -p 2886:2886 oceanbase/seekdb
 
 # Execute init SQL scripts after bootstrap, you need to mount the directory containing the init scripts then specify the directory in container via environment variable INIT_SCRIPTS_PATH.
 # Please do not change root user's password in SQL scripts. If you'd like to change root user's password, use environment variable ROOT_PASSWORD.
-docker run -d -p 2881:2881 -p 2886:2886 -v {init_sql_folder_path}:/root/boot/init.d -e INIT_SCRIPTS_PATH=/root/boot/init.d oceanbase/seekdb
+docker run -d -p 2881:2881 -p 2886:2886 -e ROOT_PASSWORD={set_as_your_pwd} -v {init_sql_folder_path}:/root/boot/init.d -e INIT_SCRIPTS_PATH=/root/boot/init.d oceanbase/seekdb
 ```
 
 ## Supported Environment Variables
@@ -42,7 +42,7 @@ Below is a table of supported environment variables for the image:
 | INIT_SCRIPTS_PATH       | The path in the container containing the init scripts.                                                                                                                                                                                                                                                                                                                                                                                                    |
 | SEEKDB_DATABASE         | The name of the database to be created at startup.                                                                                                                                                                                                                                                                                                                                                                                                        |
 
-If you'd like to modify other seekdb parameters, you can do mount a configuration file into `/etc/oceanbase/seekdb.cnf` in the container, the default configuration file is as follows.
+If you'd like to modify other seekdb parameters, you can do mount a configuration file into `/etc/seekdb/seekdb.cnf` in the container, the default configuration file is as follows.
 
 ```
 datafile_size=2G
@@ -58,15 +58,21 @@ log_disk_size=2G
 The start command should be like this.
 ```
 # **Note:** If you decide to use a configuration file, please don't specify the resource related environment variables.
-docker run -d -p 2881:2881 -p 2886:2886 -v {config_file}:/etc/oceanbase/seekdb.cnf oceanbase/seekdb
+docker run -d -p 2881:2881 -p 2886:2886 -v {config_file}:/etc/seekdb/seekdb.cnf oceanbase/seekdb
 ```
 
 ## Data Persistence
 Seekdb deploys in directory /var/lib/oceanbase, if you'd like to persist the data on the host server, please mount an empty directory on the host server to this path.
+***NOTE***: If you run seekdb container on windows, please use docker volume instead of directory on the host to ensure it works properly.
 
 ```
+# On Linux or MacOS
 mkdir -p seekdb
 docker run -d -p 2881:2881 -p 2886:2886 -v $PWD/seekdb:/var/lib/oceanbase --name seekdb oceanbase/seekdb
+
+# On Windows
+docker volume create seekdb
+docker run -d -p 2881:2881 -p 2886:2886 -v seekdb:/var/lib/oceanbase --name seekdb oceanbase/seekdb
 ```
 
 ## Connecting to seekdb Instance

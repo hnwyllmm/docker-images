@@ -8,10 +8,8 @@ import sys
 import subprocess
 import shutil
 from pathlib import Path
-from setuptools import setup, find_packages, Extension
-from setuptools.command.build_py import build_py
+from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
-from wheel.bdist_wheel import bdist_wheel
 
 # Get the current directory
 current_dir = Path(__file__).parent
@@ -31,15 +29,15 @@ def get_long_description():
         return readme_file.read_text(encoding='utf-8')
     return get_description()
 
-def __library_name():
+def _library_name():
     return "libseekdb_python"
 
-def __package_name():
+def _package_name():
     return "pylibseekdb"
 
 def get_seekdb_source_dir():
     """Get the seekdb source directory"""
-    return current_dir / "seekdb"
+    return current_dir / "seekdb-source"
 
 def get_project_root():
     """Get the project root directory"""
@@ -69,7 +67,7 @@ def clone_repo(source_url: str = None, target_dir: Path = None, git_tag: str = N
     if source_url is None:
         source_url = "https://github.com/oceanbase/seekdb.git"
     if target_dir is None:
-        target_dir = current_dir / "seekdb"
+        target_dir = get_seekdb_source_dir()
 
     if target_dir.exists() and (target_dir / ".git").exists():
         if delete_if_exists:
@@ -78,16 +76,43 @@ def clone_repo(source_url: str = None, target_dir: Path = None, git_tag: str = N
             return target_dir
 
     try:
+        print(f"Cloning repository from {source_url} to '{target_dir}' with tag '{git_tag}'")
         subprocess.run(f"""mkdir -p {target_dir} \
-                && cd ${target_dir} \
+                && cd {target_dir} \
                 && git init \
                 && git remote add origin {source_url} \
-                && git fetch --progress --depth=1 origin {git_tag} \
+                && git fetch --progress --depth=1 origin '{git_tag}' \
                 && git checkout FETCH_HEAD
-                """, shell=True, check=True, capture_output=True, universal_newlines=True)
+                """,
+                shell=True,
+                check=True,
+                capture_output=True,
+                universal_newlines=True,
+                text=True)
+    except subprocess.CalledProcessError as e:
+        print(e.stdout)
+        print(e.stderr)
+        raise Exception(f"Failed to clone repository: {e}")
     except Exception as e:
         raise Exception(f"Failed to clone repository: {e}")
     return target_dir
+
+def install_dependencies() -> None:
+    """Install dependencies for the library build"""
+    commands = [
+        f"{sys.executable} -m ensurepip",
+        f"{sys.executable} -m pip install build wheel setuptools pybind11 auditwheel",
+        "yum install -y git wget cpio make glibc-devel glibc-headers binutils m4 libtool libaio ccache"
+    ]
+    print("Installing dependencies...")
+    print(f"commands: {commands}")
+    for command in commands:
+        result = subprocess.run(command, shell=True, check=False, capture_output=True, universal_newlines=True)
+        if result.returncode != 0:
+            print(result.stdout)
+            print(result.stderr)
+            raise Exception(f"Failed to install dependencies: {result.returncode}")
+
 
 def build_library():
     """Build the libseekdb_python library"""
@@ -97,7 +122,7 @@ def build_library():
     python_home = get_python_home()
 
     build_dir = seekdb_source_dir / f"build_{build_type}"
-    library_path = build_dir / "src" / "observer" / "embed" / f"{__library_name()}.so"
+    library_path = build_dir / "src" / "observer" / "embed" / f"{_library_name()}.so"
 
     # Check if library already exists and rebuild flag is not set
     rebuild = os.environ.get('REBUILD', '1')
@@ -110,6 +135,10 @@ def build_library():
     print(f"  Python version: {python_version}")
     print(f"  Python home: {python_home}")
 
+    # clear ccache stat
+    clear_cache_cmd = "ccache -z"
+    subprocess.run(clear_cache_cmd, shell=True, check=False, capture_output=True, universal_newlines=True)
+
     # Build command
     build_cmd = [
         str(seekdb_source_dir / "build.sh"),
@@ -117,12 +146,15 @@ def build_library():
         "--init",
         "-DOB_USE_CCACHE=ON",
         "-DBUILD_EMBED_MODE=ON",
+        "-DDEFAULT_LOG_LEVEL=OB_LOG_LEVEL_DBA_WARN",
         f"-DPYTHON_VERSION={python_version}",
         f"-DCMAKE_PREFIX_PATH={python_home}",
-        "--make"
+        "--make",
+        "-j2"
     ]
 
     # Run build
+    print(f"Building library with command: {build_cmd}")
     result = subprocess.run(
         build_cmd,
         cwd=str(seekdb_source_dir),
@@ -132,6 +164,15 @@ def build_library():
 
     if not library_path.exists():
         raise FileNotFoundError(f"Build completed but library not found at {library_path}")
+
+    # ccache stat
+    stat_ccache_cmd = "ccache -s"
+    result = subprocess.run(stat_ccache_cmd, shell=True, check=False, capture_output=True, universal_newlines=True)
+    if result.returncode != 0:
+        print(result.stdout)
+        print(result.stderr)
+        raise Exception(f"Failed to get ccache stat: {result.returncode}")
+    print(f"ccache stat: {result.stdout}")
 
     # Strip the shared library to reduce its size, if the strip tool is available
     try:
@@ -149,7 +190,7 @@ def build_library():
 
 def copy_library(library_path, dest_dir=None):
     """Copy the library to the output directory"""
-    library_name = __library_name()
+    library_name = _library_name()
     if dest_dir is None:
         dest_dir = current_dir
     else:
@@ -165,34 +206,65 @@ def copy_library(library_path, dest_dir=None):
 
 class BuildExtCommand(build_ext):
     """Custom build_ext command that builds the library and treats it as an extension"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Store the library path so build_extensions can use it
+        self.library_path = None
+
+    def build_extensions(self):
+        """Override to skip compilation and copy pre-built library instead"""
+        # Skip the standard compilation process since we're using a pre-built library
+        print("Skipping extension compilation (using pre-built library)")
+
+        # Use the full extension name (e.g., pylibseekdb.libseekdb_python)
+        full_ext_name = f"{_package_name()}.{_library_name()}"
+
+        # Copy the pre-built library to where setuptools expects the extension
+        if self.library_path and self.library_path.exists():
+            # Get the extension output path that setuptools expects
+            ext_path = Path(self.get_ext_fullpath(full_ext_name))
+            ext_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Copy the pre-built library to the extension output location
+            shutil.copy2(self.library_path, ext_path)
+            print(f"Copied pre-built library to extension path: {ext_path}")
+            print(f"  Source: {self.library_path}")
+            print(f"  Destination: {ext_path}")
+
+            # Delete the build_dir
+            seekdb_source_dir = get_seekdb_source_dir()
+            build_type = os.environ.get('BUILD_TYPE', 'release')
+            build_dir = seekdb_source_dir / f"build_{build_type}" / "src" / "observer" / "embed"
+            shutil.rmtree(build_dir)
+            print(f"Deleted build_dir: {build_dir}")
+        else:
+            raise FileNotFoundError(
+                f"Pre-built library not found. Expected at: {self.library_path}"
+            )
+
     def run(self):
         # Clone the repository first
-        clone_repo(git_tag=os.environ.get('SEEKDB_GIT_TAG', 'main'))
+        clone_repo(git_tag=os.environ.get('SEEKDB_GIT_TAG', 'master'))
+        install_dependencies()
 
         # Build the library first
-        if os.environ.get('SEEKDB_BUILD_LIBRARY', '1').upper() in ('1', 'ON', 'YES', 'TRUE'):
-            library_path = build_library()
+        library_path = build_library()
 
-            # Copy library to build directory so it's treated as an extension module
-            build_lib_dir = Path(self.build_lib) / __package_name()
-            copy_library(library_path, build_lib_dir)
+        # Store the library path for build_extensions to use
+        self.library_path = library_path
 
-            # Also copy to source directory for package_data
-            copy_library(library_path, current_dir)
-        else:
-            print("Skipping library build (SEEKDB_BUILD_LIBRARY is disabled)")
-
-        # Run the standard build_ext (which will handle the extension modules)
+        # Run the standard build_ext (which will call build_extensions, but we've overridden it)
+        # This sets up the build directories and calls build_extensions()
         super().run()
 
 ext_modules = [Extension(
-    __library_name(),
+    f"{_package_name()}.{_library_name()}",
     sources=[],  # No sources - we'll copy the pre-built library
     extra_objects=[],  # Will be handled by build_ext
 )]
 
 setup(
-    name=__package_name(),
+    name=_package_name(),
     version=get_version(),
     description=get_description(),
     long_description=get_long_description(),
@@ -208,8 +280,8 @@ setup(
         "Documentation": "https://github.com/oceanbase/seekdb",
         "Bug Tracker": "https://github.com/oceanbase/seekdb/issues",
     },
-    packages=[__package_name()],
-    package_dir={f"{__package_name()}": "."},
+    packages=[_package_name()],
+    package_dir={f"{_package_name()}": "."},
     include_package_data=True,
     ext_modules=ext_modules,
     cmdclass={

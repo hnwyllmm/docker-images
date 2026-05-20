@@ -24,7 +24,7 @@ docker run -d -p 2881:2881 -p 2886:2886 oceanbase/seekdb
 
 # 在引导后执行初始化 SQL 脚本，您需要挂载包含初始化脚本的目录，然后通过环境变量 INIT_SCRIPTS_PATH 指定容器中的挂载目录。
 # 请勿在 SQL 脚本中更改 root 用户的密码。如果您想更改 root 用户的密码，请使用环境变量 ROOT_PASSWORD。
-docker run -d -p 2881:2881 -p 2886:2886 -v {init_sql_folder_path}:/root/boot/init.d -e INIT_SCRIPTS_PATH=/root/boot/init.d oceanbase/seekdb
+docker run -d -p 2881:2881 -p 2886:2886 -e ROOT_PASSWORD={set_as_your_pwd} -v {init_sql_folder_path}:/root/boot/init.d -e INIT_SCRIPTS_PATH=/root/boot/init.d oceanbase/seekdb
 ```
 
 ## 支持的环境变量
@@ -42,7 +42,7 @@ docker run -d -p 2881:2881 -p 2886:2886 -v {init_sql_folder_path}:/root/boot/ini
 | INIT_SCRIPTS_PATH       | 容器中包含初始化脚本的路径。                                                                                                                                                                                                                                                                                                                                                                                                              |
 | SEEKDB_DATABASE         | 启动时要创建的数据库名称。                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
-如果您想修改其他 seekdb 参数，可以将配置文件挂载到容器中的 `/etc/oceanbase/seekdb.cnf`，默认配置文件如下。
+如果您想修改其他 seekdb 参数，可以将配置文件挂载到容器中的 `/etc/seekdb/seekdb.cnf`，默认配置文件如下。
 
 ```
 datafile_size=2G
@@ -58,15 +58,21 @@ log_disk_size=2G
 启动命令应如下所示。
 ```
 # **注意：** 如果您决定使用配置文件，请不要指定与资源相关的环境变量。
-docker run -d -p 2881:2881 -p 2886:2886 -v {config_file}:/etc/oceanbase/seekdb.cnf oceanbase/seekdb
+docker run -d -p 2881:2881 -p 2886:2886 -v {config_file}:/etc/seekdb/seekdb.cnf oceanbase/seekdb
 ```
 
 ## 数据持久化
 Seekdb 部署在 `/var/lib/oceanbase` 目录中，如果您想将数据持久化到主机服务器，请将主机服务器上的空目录挂载到此路径。
+***注意***: 如果您在 Windows 系统上运行 seekdb 容器，请使用 docker volume 以确保容器能正常工作。
 
 ```
+# On Linux or MacOS
 mkdir -p seekdb
 docker run -d -p 2881:2881 -p 2886:2886 -v $PWD/seekdb:/var/lib/oceanbase --name seekdb oceanbase/seekdb
+
+# On Windows
+docker volume create seekdb
+docker run -d -p 2881:2881 -p 2886:2886 -v seekdb:/var/lib/oceanbase --name seekdb oceanbase/seekdb
 ```
 
 ## 连接到 seekdb 实例

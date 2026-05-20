@@ -7,41 +7,50 @@ WAIT_FOR_PASSWORD_SET_ATTEMPTS=300
 WAIT_FOR_SERVICE_READY_ATTEMPTS=300
 WAIT_INTERVAL_SECONDS=1
 
-CONFIG_FILE="/etc/oceanbase/seekdb.cnf"
+CONFIG_FILE="/etc/seekdb/seekdb.cnf"
 
-# Replace values in config file with environment variables if they are set
+# Set or append key=value in seekdb.cnf (line may be absent in newer packages)
+seekdb_set_cnf() {
+  local key="$1"
+  local value="$2"
+  if [ -f "$CONFIG_FILE" ] && grep -qE "^${key}=" "$CONFIG_FILE"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$CONFIG_FILE"
+  else
+    echo "${key}=${value}" >> "$CONFIG_FILE"
+  fi
+}
 
 if [ -n "$DATAFILE_SIZE" ]; then
-  sed -i "s|^datafile_size=.*|datafile_size=$DATAFILE_SIZE|" $CONFIG_FILE
+  seekdb_set_cnf datafile_size "$DATAFILE_SIZE"
 fi
 
 if [ -n "$DATAFILE_NEXT" ]; then
-  sed -i "s|^datafile_next=.*|datafile_next=$DATAFILE_NEXT|" $CONFIG_FILE
+  seekdb_set_cnf datafile_next "$DATAFILE_NEXT"
 fi
 
 if [ -n "$DATAFILE_MAXSIZE" ]; then
-  sed -i "s|^datafile_maxsize=.*|datafile_maxsize=$DATAFILE_MAXSIZE|" $CONFIG_FILE
+  seekdb_set_cnf datafile_maxsize "$DATAFILE_MAXSIZE"
 fi
 
 if [ -n "$CPU_COUNT" ]; then
-  sed -i "s|^cpu_count=.*|cpu_count=$CPU_COUNT|" $CONFIG_FILE
+  seekdb_set_cnf cpu_count "$CPU_COUNT"
 fi
 
 if [ -n "$MEMORY_LIMIT" ]; then
-  sed -i "s|^memory_limit=.*|memory_limit=$MEMORY_LIMIT|" $CONFIG_FILE
+  seekdb_set_cnf memory_limit "$MEMORY_LIMIT"
 fi
 
 if [ -n "$LOG_DISK_SIZE" ]; then
-  sed -i "s|^log_disk_size=.*|log_disk_size=$LOG_DISK_SIZE|" $CONFIG_FILE
+  seekdb_set_cnf log_disk_size "$LOG_DISK_SIZE"
 fi
 
 # Execute the main process
-/usr/libexec/oceanbase/scripts/seekdb_systemd_start 2>/dev/null
+/usr/libexec/seekdb/scripts/seekdb_systemd_start 2>/dev/null
 
-OBSERVER_CONFIG_FILE="/var/lib/oceanbase/etc/observer.config.bin"
+SEEKDB_CONFIG_FILE="/var/lib/oceanbase/etc/seekdb.data_version.bin"
 for i in $(seq 1 $WAIT_FOR_CONFIG_FILE_ATTEMPTS); do
-  if [ -f "$OBSERVER_CONFIG_FILE" ]; then
-    echo "File '$OBSERVER_CONFIG_FILE' found on attempt #$i."
+  if [ -f "$SEEKDB_CONFIG_FILE" ]; then
+    echo "File '$SEEKDB_CONFIG_FILE' found on attempt #$i."
     break
   fi
   if [ $((i % 10)) -eq 0 ]; then
@@ -56,7 +65,7 @@ INITIALIZED_FLAG="/var/lib/oceanbase/.initialized"
 if [ ! -f "$INITIALIZED_FLAG" ]; then
   # change password using obshell
   for i in $(seq 1 $WAIT_FOR_PASSWORD_SET_ATTEMPTS); do
-    curl -X PUT "http://127.0.0.1:2886/api/v1/observer/user/root/password" -d "{\"password\":\"$ROOT_PASSWORD\"}" --unix-socket "/var/lib/oceanbase/run/obshell.sock"
+    curl -X PUT "http://127.0.0.1:2886/api/v1/seekdb/user/root/password" -d "{\"password\":\"$ROOT_PASSWORD\"}" --unix-socket "/var/lib/oceanbase/run/obshell.sock"
     EXIT_STATUS=$?
     if [ $EXIT_STATUS -eq 0 ]; then
       echo "Command succeeded on attempt #$i."
@@ -127,10 +136,11 @@ if [ $# -gt 0 ]; then
   exit $?
 fi
 
-echo "Starting observer health check..."
-while pgrep observer > /dev/null; do
+echo "Seekdb started"
+echo "Start seekdb health check loop"
+while pgrep seekdb > /dev/null; do
   sleep 5
 done
 
-echo "Observer process not found. Exiting."
+echo "Seekdb process not found. Exiting."
 exit 1

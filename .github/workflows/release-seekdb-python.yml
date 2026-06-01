@@ -61,7 +61,8 @@ jobs:
             pip install setuptools wheel build &&
             bash -c 'set -euo pipefail;
             PROJ="{project}";
-            SRC="$PROJ/seekdb-source";
+            PKG="$PROJ/seekdb-python";
+            SRC="$PKG/seekdb-source";
             TAG="${SEEKDB_GIT_TAG:-master}";
             if [ ! -d "$SRC/.git" ]; then
               mkdir -p "$SRC";
@@ -70,7 +71,7 @@ jobs:
               git -C "$SRC" fetch --progress --depth=1 origin "$TAG";
               git -C "$SRC" checkout FETCH_HEAD;
             fi;
-            patch -p1 -N -d "$SRC" < "$PROJ/build_python_embed.diff"'
+            patch -p1 -N -d "$SRC" < "$PKG/build_python_embed.diff"'
           CIBW_BUILD: "cp38-* cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*"
           CIBW_SKIP: "*-musllinux_* *-win_* *-macosx_*"
           CIBW_ENVIRONMENT: "SEEKDB_GIT_TAG=${{ steps.extract_version.outputs.seekdb_version }} PACKAGE_VERSION=${{ steps.extract_version.outputs.package_version }} BUILD_TYPE=release REBUILD=1 SEEKDB_BUILD_LIBRARY=1"

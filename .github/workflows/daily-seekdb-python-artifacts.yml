@@ -33,7 +33,20 @@ jobs:
       - name: Build wheels (Python 3.11 only)
         uses: pypa/cibuildwheel@v3.3.0
         env:
-          CIBW_BEFORE_BUILD: "pip install setuptools wheel build"
+          CIBW_BEFORE_BUILD: >
+            pip install setuptools wheel build &&
+            bash -c 'set -euo pipefail;
+            PROJ="{project}";
+            SRC="$PROJ/seekdb-source";
+            TAG="${SEEKDB_GIT_TAG:-master}";
+            if [ ! -d "$SRC/.git" ]; then
+              mkdir -p "$SRC";
+              git -C "$SRC" init;
+              git -C "$SRC" remote add origin https://github.com/oceanbase/seekdb.git;
+              git -C "$SRC" fetch --progress --depth=1 origin "$TAG";
+              git -C "$SRC" checkout FETCH_HEAD;
+            fi;
+            patch -p1 -N -d "$SRC" < "$PROJ/build_python_embed.diff"'
           CIBW_BUILD: "cp311-*"
           CIBW_SKIP: "*-musllinux_* *-win_* *-macosx_*"
           CIBW_ENVIRONMENT: "SEEKDB_GIT_TAG=${{ env.SEEKDB_GIT_TAG }} PACKAGE_VERSION=${{ env.PACKAGE_VERSION }} BUILD_TYPE=release REBUILD=1 SEEKDB_BUILD_LIBRARY=1"
